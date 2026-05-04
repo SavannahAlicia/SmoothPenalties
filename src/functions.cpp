@@ -6,13 +6,12 @@ double negllk_norm(
                    NumericVector Betas,
                    NumericMatrix X,
                    NumericVector y,
-                   NumericMatrix S,
+                   NumericVector Snewdiag,
                    double lambda
                    ){
   int n = y.length();
-  int p = Betas.length() - 1; // sigma is last beta
-  double sigma = Betas[(p)];
-  double lhs = (n/2) * log(2 * M_PI * sigma* sigma);
+  int p = Betas.length(); 
+
   double sum = 0.0;
   for(int i = 0; i < n; i ++){
     double Xb = 0.0;
@@ -21,16 +20,12 @@ double negllk_norm(
     }
     sum = sum + (y[i] - Xb) * (y[i] - Xb);
   }
-  double rhs = (1/2 * sigma * sigma) * sum;
   
   double pen = 0.0;
   for (int i = 0; i < p; i++) {
-    for (int j = 0; j < p; j++) {
-      pen = pen + Betas[i] * S(i, j) * Betas[j];
-    }
+      pen = pen + Snewdiag[i] * Betas[i] * Betas[i];
   }
   
-  pen *= 0.5 * lambda;
   
-  return(lhs + rhs + pen);
+  return(sum + pen * lambda);
 }
