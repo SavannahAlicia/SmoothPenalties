@@ -22,7 +22,8 @@ dat <- data.frame(x1, x2, #x3,
 fit_duc <- gam(y ~ s(x1, x2, #x3, 
                      bs = "ds", m = c(2, 0)),
                family = gaussian(link = "identity"),
-               data = dat)
+               data = dat,
+               optimizer = c("outer", "bfgs"))
 lambda = fit_duc$sp
 
 sm <- smoothCon(s(x1, x2, #x3, 
@@ -47,7 +48,15 @@ fitmy_nopen <- optim(beta_init,
                S = (S),
                lambda = 0,
                method = "BFGS", control = list(maxit = 100))
-#with rotation like mgcv does
+#check if this gets same issue when i fit basis with lm
+Xdf <- as.data.frame(X)
+Xdf$y <- y
+fit_lm <- lm(y ~ V1+ V2+ V3+ V4+ V5+ V6+ V7+ V8+ V9+ V10+ V11+ V12+ V13+ 
+               V14+ V15+ V16+ V17+ V18+ V19+ V20+ V21+ V22+ V23+ V24+ V25+
+               V26+ V27+ V28+ V29+ V30+ V31+ V32+ V33 -1, 
+             data = Xdf, )
+
+#with rotation like mgcv does maybe?
 E <- eigen(S, symmetric = TRUE)
 U <- E$vectors
 D <- E$values
@@ -113,12 +122,17 @@ grid <- expand.grid(
   x2 = seq(min(x2), max(x2), length.out = 100)
 )
 X_pred <- PredictMat(sm, data = grid)
-grid$my <- X_pred %*% beta_my
+grid$my <- as.vector(X_pred %*% beta_my)
 grid$mgcv <- predict(fit_duc, grid)
 grid$y <- sin(pi * grid$x1) + grid$x2^2 - grid$x1 
+grid$diff_mgvme_p <- (grid$mgcv - grid$my)/(grid$mgcv + 1e-16)
+grid$diff_mgvme <- (grid$mgcv - grid$my)
+grid$lm <- predict(fit_lm, as.data.frame(X_pred))
+grid$mynopen <- as.vector(X_pred %*% fitmy_nopen$par )
+
 
 plotdatg <- grid |>
-  pivot_longer(cols = c(my, mgcv, y),
+  pivot_longer(cols = c(my, mgcv,lm, y),
                names_to = "model",
                values_to = "value")
 
@@ -128,8 +142,21 @@ ggplot() +
   scale_fill_viridis_c() +
   coord_equal() +
   theme_minimal()
+ggplot() +
+  geom_raster(grid, 
+              mapping = aes(x = x1, y = x2, fill = diff_mgvme)) +
+  scale_fill_viridis_c() +
+  coord_equal() +
+  theme_minimal()
+ggplot() +
+  geom_raster(grid, 
+              mapping = aes(x = x1, y = x2, fill = diff_mgvme_p)) +
+  scale_fill_viridis_c() +
+  coord_equal() +
+  theme_minimal()
 
-##---- demo cross validation
+
+##---- demo cross validation---------------------------------------------------
 K = 5
 folds <- sample(rep(1:K, length.out = n))
 cv_score <- function(X, y, S, lambda, beta_init, folds) {
@@ -168,7 +195,27 @@ cv_score <- function(X, y, S, lambda, beta_init, folds) {
 lambda_grid <- exp(seq(-6, 6, length.out = 40))
 
 cv_vals <- sapply(lambda_grid, function(lam) {
-  cv_score(X, y, S, lam, sigma, K = 5)
+  cv_score(X, y, S, lam, beta_init, folds)
 })
 
 lambda_hat <- lambda_grid[which.min(cv_vals)]
+fitmy_lhat <- optim(beta_init, 
+                     negllk_norm,
+                     X = X, 
+                     y = y,
+                     S = (S),
+                     lambda = lambda_hat,
+                     method = "BFGS", control = list(maxit = 100))
+grid$mylhat <- as.vector(X_pred %*% fitmy_lhat$par)
+plotdatg <- grid |>
+  pivot_longer(cols = c(mylhat, mgcv, y),
+               names_to = "model",
+               values_to = "value")
+
+ggplot() +
+  geom_raster(plotdatg, mapping = aes(x = x1, y = x2, fill = value)) +
+  facet_wrap(~ model) +
+  scale_fill_viridis_c() +
+  coord_equal() +
+  theme_minimal()
+
