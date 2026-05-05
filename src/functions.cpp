@@ -6,8 +6,9 @@ double negllk_norm(
                    NumericVector Betas,
                    NumericMatrix X,
                    NumericVector y,
-                   NumericVector Snewdiag,
-                   double lambda
+                   NumericMatrix S,
+                   double lambda,
+                   bool incl_pen = true
                    ){
   int n = y.length();
   int p = Betas.length(); 
@@ -21,11 +22,18 @@ double negllk_norm(
     sum = sum + (y[i] - Xb) * (y[i] - Xb);
   }
   
-  double pen = 0.0;
-  for (int i = 0; i < p; i++) {
-      pen = pen + Snewdiag[i] * Betas[i] * Betas[i];
+  if(incl_pen){
+    // Add penalty term t(beta) %*% S %*% beta
+    double pen = 0.0;
+    for (int i = 0; i < p; i++) {
+      double rowsum = 0.0;
+      for(int j = 0; j < p; j ++){
+        rowsum +=  S(i,j)  * Betas[j];
+      }
+      pen += Betas[i] * rowsum;
+    }
+    sum = sum + pen * 0.5 * lambda;
   }
   
-  
-  return(sum + pen * lambda);
+  return(sum);
 }
