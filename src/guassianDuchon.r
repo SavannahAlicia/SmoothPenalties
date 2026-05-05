@@ -31,6 +31,23 @@ sm <- smoothCon(s(x1, x2, #x3,
 
 X <- sm$X
 S <- sm$S[[1]]
+beta_init <- rep(1, ncol(X))
+fitmy <- optim(beta_init, 
+               negllk_norm,
+               X = X, 
+               y = y,
+               S = S,
+               lambda = lambda,
+               method = "BFGS", control = list(maxit = 100))
+
+fitmy_nopen <- optim(beta_init, 
+               negllk_norm,
+               X = X, 
+               y = y,
+               S = (S),
+               lambda = 0,
+               method = "BFGS", control = list(maxit = 100))
+#with rotation like mgcv does
 E <- eigen(S, symmetric = TRUE)
 U <- E$vectors
 D <- E$values
@@ -49,38 +66,38 @@ X_pen_scaled <- X_pen %*% diag(1 / sqrt(D_pen))
 X_new <- cbind(X_null, X_pen_scaled)
 p_null <- ncol(X_null)
 p_pen  <- ncol(X_pen_scaled)
-
 S_new <- diag(c(rep(0, p_null), rep(1, p_pen)))
+fitmyrot <- optim(beta_init, 
+               negllk_norm,
+               X = X_new, 
+               y = y,
+               S = S_new,
+               lambda = lambda,
+               method = "BFGS", control = list(maxit = 100))
 
-beta_init <- rep(1, ncol(X_new))
 
 
-fitmy <- optim(beta_init, 
-             negllk_norm,
-             X = X_new, 
-             y = y,
-             Snewdiag = diag(S_new),
-             lambda = lambda,
-             method = "BFGS", control = list(maxit = 100))
 
-beta_new <- fitmy$par
-alpha_null <- beta_new[1:p_null]
-theta      <- beta_new[(p_null + 1):(p_null + p_pen)]
-alpha_pen <- theta / sqrt(D_pen)
-U_null <- U[, null_idx, drop = FALSE]
-U_pen  <- U[, pen_idx,  drop = FALSE]
-beta_orig <- U_null %*% alpha_null + U_pen %*% alpha_pen
-pred_my <- as.vector(X %*% beta_orig)
+#data points from simulation
+beta_my <- fitmy$par
+beta_nopen <- fitmy_nopen$par
+beta_rot <- fitmyrot$par
+pred_rot <- as.vector(X_new %*% beta_rot)
+pred_my <- as.vector(X %*% beta_my)
+pred_nopen <- as.vector(X %*% beta_nopen)
 comparedat <- data.frame(y = y,
                          x1 = x1,
                          x2 = x2, 
                         # x3 = x3,
                          my = pred_my,
+                        rot = pred_rot,
+                        nopen = pred_nopen,
                          mgcv = predict.gam(fit_duc, dat)
 )
 plotdat <- comparedat |>
   pivot_longer(
-    cols = c(my, mgcv, y),
+    cols = c(my, mgcv, nopen,
+             y),
     names_to = "source",
     values_to = "value"
   )                         
@@ -96,7 +113,7 @@ grid <- expand.grid(
   x2 = seq(min(x2), max(x2), length.out = 100)
 )
 X_pred <- PredictMat(sm, data = grid)
-grid$my <- X_pred %*% beta_orig
+grid$my <- X_pred %*% beta_my
 grid$mgcv <- predict(fit_duc, grid)
 grid$y <- sin(pi * grid$x1) + grid$x2^2 - grid$x1 
 
@@ -111,3 +128,47 @@ ggplot() +
   scale_fill_viridis_c() +
   coord_equal() +
   theme_minimal()
+
+##---- demo cross validation
+K = 5
+folds <- sample(rep(1:K, length.out = n))
+cv_score <- function(X, y, S, lambda, beta_init, folds) {
+  
+  total <- 0
+  
+  for (k in 1:K) {
+    
+    test_idx <- which(folds == k)
+    train_idx <- setdiff(1:n, test_idx)
+    
+    X_train <- X[train_idx, , drop = FALSE]
+    y_train <- y[train_idx]
+    
+    X_test <- X[test_idx, , drop = FALSE]
+    y_test <- y[test_idx]
+    
+    beta_hat <- optim(beta_init,
+                 negllk_norm,   # your penalized objective
+                 X = X_train,
+                 y = y_train,
+                 S = S,
+                 lambda = lambda,
+                 method = "BFGS")$par
+    beta_init <- beta_hat
+    
+    # ---- evaluate (UNPENALIZED likelihood) ----
+    ll <- negllk_norm(beta_hat, X_test, y_test, S, lambda, incl_pen = F)
+    
+    total <- total + ll  
+  }
+  
+  return(total/length(y))
+}
+
+lambda_grid <- exp(seq(-6, 6, length.out = 40))
+
+cv_vals <- sapply(lambda_grid, function(lam) {
+  cv_score(X, y, S, lam, sigma, K = 5)
+})
+
+lambda_hat <- lambda_grid[which.min(cv_vals)]
