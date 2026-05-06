@@ -33,6 +33,7 @@ sm <- smoothCon(s(x1, x2, #x3,
 X <- sm$X
 S <- sm$S[[1]]
 beta_init <- rep(1, ncol(X))
+
 fitmy <- optim(beta_init, 
                negllk_norm,
                X = X, 
@@ -175,7 +176,7 @@ cv_score <- function(X, y, S, lambda, beta_init, folds) {
     y_test <- y[test_idx]
     
     beta_hat <- optim(beta_init,
-                 negllk_norm,   # your penalized objective
+                 negllk_norm,   # penalized
                  X = X_train,
                  y = y_train,
                  S = S,
@@ -183,22 +184,24 @@ cv_score <- function(X, y, S, lambda, beta_init, folds) {
                  method = "BFGS")$par
     beta_init <- beta_hat
     
-    # ---- evaluate (UNPENALIZED likelihood) ----
+    #unpenalized likelihood for score
     ll <- negllk_norm(beta_hat, X_test, y_test, S, lambda, incl_pen = F)
     
     total <- total + ll  
   }
   
-  return(total/length(y))
+  return(total/length(y)) #mean
 }
 
-lambda_grid <- exp(seq(-6, 6, length.out = 40))
+lambda_grid <- data.frame(lambda = exp(seq(-5, 5, length.out = 40)))
 
-cv_vals <- sapply(lambda_grid, function(lam) {
+lambda_grid$cv_vals <- sapply(lambda_grid$lambda, function(lam) {
   cv_score(X, y, S, lam, beta_init, folds)
 })
+ggplot() +
+  geom_line(data = lambda_grid, mapping = aes(x = log(lambda), y = cv_vals))
 
-lambda_hat <- lambda_grid[which.min(cv_vals)]
+lambda_hat <- lambda_grid$lambda[which.min(lambda_grid$cv_vals)]
 fitmy_lhat <- optim(beta_init, 
                      negllk_norm,
                      X = X, 
